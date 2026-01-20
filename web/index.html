@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Inverted Index Server</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="container">
+
+    <section class="card">
+      <h2>Build / Update</h2>
+      <div class="row">
+        <label>Dataset path</label>
+        <input id="datasetPath" placeholder="./data/raw" />
+      </div>
+      <div class="row">
+        <label>Threads</label>
+        <input id="threads" type="number" min="1" value="8" />
+      </div>
+      <div class="row inline">
+        <label class="chk">
+          <input id="incremental" type="checkbox" checked />
+          Incremental (update)
+        </label>
+        <button id="btnBuild">Start</button>
+        <button id="btnStatus">Refresh status</button>
+      </div>
+      <pre id="buildOut" class="out"></pre>
+    </section>
+
+    <section class="card">
+      <h2>Scheduler</h2>
+      <div class="row inline">
+        <label class="chk">
+          <input id="schedEnabled" type="checkbox" />
+          Enabled
+        </label>
+        <label>Interval (s)</label>
+        <input id="schedInterval" type="number" min="1" value="30" />
+        <button id="btnSched">Apply</button>
+      </div>
+      <pre id="schedOut" class="out"></pre>
+    </section>
+
+    <section class="card">
+      <h2>Search</h2>
+      <div class="row">
+        <label>Query</label>
+        <input id="query" placeholder="example: war peace" />
+      </div>
+      <div class="row inline">
+        <label>TopK</label>
+        <input id="topk" type="number" min="1" value="20" />
+        <button id="btnSearch">Search</button>
+      </div>
+      <pre id="searchOut" class="out"></pre>
+    </section>
+
+    <section class="card">
+      <h2>Status</h2>
+      <pre id="statusOut" class="out"></pre>
+    </section>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
