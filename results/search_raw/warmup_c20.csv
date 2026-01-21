@@ -1,0 +1,2 @@
+clients,duration_s,total,ok,fail,rps,p50_ms,p95_ms,p99_ms
+20,3,58614,58614,0,19538,1,1,1
