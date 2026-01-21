@@ -1,14 +1,14 @@
-# Project README
-
-Minimal full-text search engine with a C++ HTTP server, C++ CLI client, and a small web UI.
+Full-text search engine with a C++ HTTP server, C++ CLI client, and a small web UI.
 
 ## Requirements
+
 - CMake 3.16+
 - C++17 compiler
 - (Linux) pthreads
 - (Windows) Winsock (auto via MSVC/MinGW)
 
 ## Build
+
 From the repository root:
 
 ```sh
@@ -19,6 +19,7 @@ cmake --build build --config Release
 Built binaries are placed under `build/` (platform-specific subfolder on Windows).
 
 ## Run the server
+
 Set a dataset path in `config.env` (or pass `--dataset` on the command line).
 
 Example:
@@ -28,6 +29,7 @@ Example:
 ```
 
 Useful flags (override `config.env`):
+
 - `--host 0.0.0.0`
 - `--port 8080`
 - `--dataset /path/to/dataset`
@@ -35,9 +37,11 @@ Useful flags (override `config.env`):
 - `--web_root web`
 
 Then open the web UI:
+
 - `http://127.0.0.1:8080/`
 
 ## Build the index (from web UI or CLI)
+
 From the web UI, click "Build".
 
 From CLI:
@@ -47,6 +51,7 @@ From CLI:
 ```
 
 ## Search
+
 From CLI:
 
 ```sh
@@ -54,16 +59,11 @@ From CLI:
 ```
 
 From web UI:
+
 - Enter query and press "Search".
 
-## Dataset selector (optional)
-Create a smaller dataset from a large corpus:
-
-```sh
-./build/dataset_selector --input "/path/to/large_corpus" --output "./data/subset1" --count 5000 --random --seed 42
-```
-
 ## Load testing (optional)
+
 Search load test against the running server:
 
 ```sh
@@ -77,5 +77,6 @@ Local build benchmark (no server needed):
 ```
 
 ## Notes
+
 - The server indexes `.txt` files by default.
 - Web assets are copied next to the server binary after build.
