@@ -10,6 +10,8 @@
 #include <thread>
 #include <vector>
 
+#include "concurrency/thread_pool.h"
+
 #ifdef _WIN32
   #include <winsock2.h>
   #include <ws2tcpip.h>
@@ -115,7 +117,6 @@ static std::string build_response_bytes(const HttpResponse& resp) {
 
     oss << "HTTP/1.1 " << st << " " << reason << "\r\n";
 
-    // Ensure Connection close to simplify server logic
     bool has_conn = false;
     bool has_len = false;
 
@@ -180,7 +181,6 @@ static std::optional<std::string> recv_some(int fd) {
 }
 
 static std::optional<HttpRequest> parse_http_request(const std::string& raw, std::string* err) {
-    // split headers and body
     size_t header_end = raw.find("\r\n\r\n");
     if (header_end == std::string::npos) {
         if (err) *err = "No header terminator";
@@ -205,7 +205,6 @@ static std::optional<HttpRequest> parse_http_request(const std::string& raw, std
         return std::nullopt;
     }
 
-    // headers
     std::string line;
     while (std::getline(iss, line)) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
@@ -217,7 +216,6 @@ static std::optional<HttpRequest> parse_http_request(const std::string& raw, std
         if (!key.empty()) req.headers[to_lower(key)] = val;
     }
 
-    // path + query
     size_t qpos = req.target.find('?');
     if (qpos == std::string::npos) {
         req.path = req.target;
@@ -242,7 +240,7 @@ void HttpServer::close_listen_socket_() {
 
 void HttpServer::stop() {
     stopping_ = true;
-    close_listen_socket_(); // this should unblock accept
+    close_listen_socket_();
 }
 
 void HttpServer::run() {
@@ -252,7 +250,6 @@ void HttpServer::run() {
 
     stopping_ = false;
 
-    // Create socket
 #ifdef _WIN32
     SOCKET s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (s == INVALID_SOCKET) throw std::runtime_error("socket() failed");
@@ -263,7 +260,6 @@ void HttpServer::run() {
     listen_fd_ = s;
 #endif
 
-    // Reuse address
     int opt = 1;
 #ifdef _WIN32
     ::setsockopt((SOCKET)listen_fd_, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
@@ -312,6 +308,10 @@ void HttpServer::run() {
 
     std::cout << "[HttpServer] Listening on " << (host_.empty() ? "0.0.0.0" : host_) << ":" << port_ << "\n";
 
+    std::size_t worker_count = std::thread::hardware_concurrency();
+    if (worker_count == 0) worker_count = 4;
+    ThreadPool pool(worker_count);
+
     while (!stopping_) {
         sockaddr_in client_addr{};
 #ifdef _WIN32
@@ -339,98 +339,95 @@ void HttpServer::run() {
 #endif
         std::string remote = std::string(ipbuf) + ":" + std::to_string(ntohs(client_addr.sin_port));
 
-        // Very simple concurrency model: 1 thread per connection.
-        // OK for coursework + clear reasoning. You can later swap to your ThreadPool if desired.
-        std::thread([this, client_fd, remote]() {
-            // Read request (headers + optional body)
-            const size_t MAX_HEADER = 1024 * 1024;  // 1MB
-            const size_t MAX_BODY   = 10 * 1024 * 1024; // 10MB
+        try {
+            pool.submit([this, client_fd, remote]() {
+                const size_t MAX_HEADER = 1024 * 1024;
+                const size_t MAX_BODY   = 10 * 1024 * 1024;
 
-            std::string raw;
-            raw.reserve(8192);
+                std::string raw;
+                raw.reserve(8192);
 
-            // read until we have headers
-            while (true) {
-                auto chunk = recv_some(client_fd);
-                if (!chunk.has_value()) break;
-                raw += *chunk;
-                if (raw.size() > MAX_HEADER) break;
-                if (raw.find("\r\n\r\n") != std::string::npos) break;
-            }
+                while (true) {
+                    auto chunk = recv_some(client_fd);
+                    if (!chunk.has_value()) break;
+                    raw += *chunk;
+                    if (raw.size() > MAX_HEADER) break;
+                    if (raw.find("\r\n\r\n") != std::string::npos) break;
+                }
 
-            HttpResponse resp;
-            resp.status = 400;
-            resp.reason = status_reason(400);
-            resp.headers["Content-Type"] = "text/plain; charset=utf-8";
-            resp.body = "Bad Request";
+                HttpResponse resp;
+                resp.status = 400;
+                resp.reason = status_reason(400);
+                resp.headers["Content-Type"] = "text/plain; charset=utf-8";
+                resp.body = "Bad Request";
 
-            std::string parse_err;
-            auto req_opt = parse_http_request(raw, &parse_err);
-            if (!req_opt.has_value()) {
-                resp.body = "Bad Request: " + parse_err;
-                std::string bytes = build_response_bytes(resp);
-                send_all(client_fd, bytes.data(), bytes.size());
-                closesock(client_fd);
-                return;
-            }
-
-            HttpRequest req = std::move(*req_opt);
-            req.remote_addr = remote;
-
-            // If there is Content-Length and body not fully read, read the rest
-            auto cl_opt = header_content_length(req.headers);
-            if (cl_opt.has_value()) {
-                long long need = *cl_opt;
-                if (need < 0 || (size_t)need > MAX_BODY) {
-                    HttpResponse r413;
-                    r413.status = 413;
-                    r413.reason = status_reason(413);
-                    r413.headers["Content-Type"] = "text/plain; charset=utf-8";
-                    r413.body = "Payload Too Large";
-                    std::string bytes = build_response_bytes(r413);
+                std::string parse_err;
+                auto req_opt = parse_http_request(raw, &parse_err);
+                if (!req_opt.has_value()) {
+                    resp.body = "Bad Request: " + parse_err;
+                    std::string bytes = build_response_bytes(resp);
                     send_all(client_fd, bytes.data(), bytes.size());
                     closesock(client_fd);
                     return;
                 }
 
-                // parse_http_request took whatever was after header_end; might be partial
-                while ((long long)req.body.size() < need) {
-                    auto chunk = recv_some(client_fd);
-                    if (!chunk.has_value()) break;
-                    req.body += *chunk;
+                HttpRequest req = std::move(*req_opt);
+                req.remote_addr = remote;
+
+                auto cl_opt = header_content_length(req.headers);
+                if (cl_opt.has_value()) {
+                    long long need = *cl_opt;
+                    if (need < 0 || (size_t)need > MAX_BODY) {
+                        HttpResponse r413;
+                        r413.status = 413;
+                        r413.reason = status_reason(413);
+                        r413.headers["Content-Type"] = "text/plain; charset=utf-8";
+                        r413.body = "Payload Too Large";
+                        std::string bytes = build_response_bytes(r413);
+                        send_all(client_fd, bytes.data(), bytes.size());
+                        closesock(client_fd);
+                        return;
+                    }
+
+                    while ((long long)req.body.size() < need) {
+                        auto chunk = recv_some(client_fd);
+                        if (!chunk.has_value()) break;
+                        req.body += *chunk;
+                    }
+
+                    if ((long long)req.body.size() > need) {
+                        req.body.resize((size_t)need);
+                    }
                 }
 
-                if ((long long)req.body.size() > need) {
-                    req.body.resize((size_t)need); // ignore extra
+                try {
+                    HttpResponse out = handler_(req);
+                    if (out.reason.empty()) out.reason = status_reason(out.status);
+                    std::string bytes = build_response_bytes(out);
+                    send_all(client_fd, bytes.data(), bytes.size());
+                } catch (const std::exception& e) {
+                    HttpResponse r500;
+                    r500.status = 500;
+                    r500.reason = status_reason(500);
+                    r500.headers["Content-Type"] = "text/plain; charset=utf-8";
+                    r500.body = std::string("Internal Server Error: ") + e.what();
+                    std::string bytes = build_response_bytes(r500);
+                    send_all(client_fd, bytes.data(), bytes.size());
+                } catch (...) {
+                    HttpResponse r500;
+                    r500.status = 500;
+                    r500.reason = status_reason(500);
+                    r500.headers["Content-Type"] = "text/plain; charset=utf-8";
+                    r500.body = "Internal Server Error";
+                    std::string bytes = build_response_bytes(r500);
+                    send_all(client_fd, bytes.data(), bytes.size());
                 }
-            }
 
-            // Handle request
-            try {
-                HttpResponse out = handler_(req);
-                if (out.reason.empty()) out.reason = status_reason(out.status);
-                std::string bytes = build_response_bytes(out);
-                send_all(client_fd, bytes.data(), bytes.size());
-            } catch (const std::exception& e) {
-                HttpResponse r500;
-                r500.status = 500;
-                r500.reason = status_reason(500);
-                r500.headers["Content-Type"] = "text/plain; charset=utf-8";
-                r500.body = std::string("Internal Server Error: ") + e.what();
-                std::string bytes = build_response_bytes(r500);
-                send_all(client_fd, bytes.data(), bytes.size());
-            } catch (...) {
-                HttpResponse r500;
-                r500.status = 500;
-                r500.reason = status_reason(500);
-                r500.headers["Content-Type"] = "text/plain; charset=utf-8";
-                r500.body = "Internal Server Error";
-                std::string bytes = build_response_bytes(r500);
-                send_all(client_fd, bytes.data(), bytes.size());
-            }
-
+                closesock(client_fd);
+            });
+        } catch (...) {
             closesock(client_fd);
-        }).detach();
+        }
     }
 
     close_listen_socket_();

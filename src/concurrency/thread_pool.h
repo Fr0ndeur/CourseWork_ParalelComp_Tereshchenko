@@ -12,10 +12,6 @@
 
 #include "blocking_queue.h"
 
-// Minimal thread pool:
-// - submit(...) returns std::future<R>
-// - graceful shutdown in destructor (waits for tasks to finish)
-// - no external deps besides STL
 class ThreadPool {
 public:
     explicit ThreadPool(std::size_t thread_count);
@@ -24,7 +20,6 @@ public:
 
     ~ThreadPool();
 
-    // Submit any callable + args. Returns future of result type.
     template <class F, class... Args>
     auto submit(F&& f, Args&&... args)
         -> std::future<std::invoke_result_t<F, Args...>> 
@@ -41,7 +36,6 @@ public:
 
         std::future<R> fut = task_ptr->get_future();
 
-        // Wrap packaged_task into void() job
         bool pushed = queue_.push([task_ptr]() {
             (*task_ptr)();
         });
@@ -53,8 +47,6 @@ public:
         return fut;
     }
 
-    // Stops accepting new tasks, closes queue, waits workers.
-    // Safe to call multiple times.
     void shutdown();
 
     std::size_t size() const { return workers_.size(); }

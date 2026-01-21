@@ -14,6 +14,11 @@ struct Posting {
     int freq = 0;
 };
 
+struct TermPostings {
+    std::string term;
+    std::vector<Posting> postings;
+};
+
 struct SearchResult {
     int doc_id = -1;
     double score = 0.0;
@@ -32,17 +37,14 @@ public:
     ConcurrentInvertedIndex(const ConcurrentInvertedIndex&) = delete;
     ConcurrentInvertedIndex& operator=(const ConcurrentInvertedIndex&) = delete;
 
-    // Add/update document with provided term frequencies.
-    // If doc already exists -> it will be replaced (old postings removed).
     void upsert_document(int doc_id, const std::unordered_map<std::string, int>& term_freq);
 
-    // Remove document from index (no-op if absent).
     void remove_document(int doc_id);
 
-    // Search: score = sum(freq) across query terms (simple baseline).
-    // Returns top_k docs sorted by score desc.
     std::vector<SearchResult> search(const std::vector<std::string>& query_terms,
                                     std::size_t top_k = 20) const;
+
+    std::vector<TermPostings> snapshot() const;
 
     IndexStats stats() const;
 
@@ -55,14 +57,11 @@ private:
     std::size_t shard_count_;
     std::vector<Shard> shards_;
 
-    // Forward index to support efficient remove/update:
-    // doc_id -> list of (term, freq)
     mutable std::shared_mutex forward_mu_;
     std::unordered_map<int, std::vector<std::pair<std::string, int>>> forward_;
 
     std::size_t shard_for_(const std::string& term) const;
 
-    // internal helpers (assume forward lock handled by caller appropriately)
     std::vector<std::pair<std::string, int>> get_forward_copy_(int doc_id) const;
 };
 

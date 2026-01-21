@@ -37,7 +37,7 @@ std::vector<std::string> Tokenizer::tokenize(std::string_view text) const {
             if (cur.size() < cfg_.max_token_len) {
                 cur.push_back(normalize_char(c));
             } else {
-                // token too long: keep consuming but do not grow
+                // token too long
             }
         } else {
             if (cur.size() >= cfg_.min_token_len) {

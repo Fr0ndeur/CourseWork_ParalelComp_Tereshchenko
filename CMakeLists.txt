@@ -58,7 +58,7 @@ add_library(net
   ${PROJECT_SRC_DIR}/net/request_router.cpp
 )
 target_include_directories(net PUBLIC ${PROJECT_SRC_DIR})
-target_link_libraries(net PUBLIC utils Threads::Threads)
+target_link_libraries(net PUBLIC utils concurrency Threads::Threads)
 
 # ws2_32 for Windows sockets
 if (WIN32)
@@ -105,11 +105,6 @@ if (WIN32)
 endif()
 set_common_options(load_test)
 
-add_executable(dataset_selector
-  ${PROJECT_SRC_DIR}/apps/dataset_selector_main.cpp
-)
-target_link_libraries(dataset_selector PRIVATE Threads::Threads)
-set_common_options(dataset_selector)
 
 # -----------------------
 # Copy web/ to build dir рядом с server

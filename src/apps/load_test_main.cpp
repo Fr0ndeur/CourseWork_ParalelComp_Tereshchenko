@@ -10,6 +10,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include "core/document_store.h"
@@ -156,6 +157,9 @@ Search load (server):
 
 Local build benchmark (graphs "time vs threads"):
   load_test --mode build --dataset "/path/to/dataset" --threads_list "1,2,4,8" [--csv build.csv]
+
+Verify sequential vs parallel results (local):
+  load_test --mode verify --dataset "/path/to/dataset" --threads_list "2,4,8"
 )USAGE";
 }
 
@@ -171,6 +175,78 @@ std::vector<int> parse_list(const std::string& s) {
     if (!cur.empty()) out.push_back(std::stoi(cur));
     if (out.empty()) out.push_back(1);
     return out;
+}
+
+std::unordered_map<int, std::string> build_id_path_map(const core::DocumentStore& store) {
+    std::unordered_map<int, std::string> out;
+    auto docs = store.list_all();
+    out.reserve(docs.size());
+    for (const auto& d : docs) {
+        out[d.doc_id] = d.path;
+    }
+    return out;
+}
+
+uint64_t fnv1a_update(uint64_t hash, const void* data, size_t len) {
+    const unsigned char* p = static_cast<const unsigned char*>(data);
+    for (size_t i = 0; i < len; ++i) {
+        hash ^= static_cast<uint64_t>(p[i]);
+        hash *= 1099511628211ULL;
+    }
+    return hash;
+}
+
+uint64_t fnv1a_add_string(uint64_t hash, const std::string& s) {
+    hash = fnv1a_update(hash, s.data(), s.size());
+    const unsigned char sep = 0;
+    return fnv1a_update(hash, &sep, 1);
+}
+
+uint64_t fnv1a_add_int(uint64_t hash, int v) {
+    uint32_t u = static_cast<uint32_t>(v);
+    hash = fnv1a_update(hash, &u, sizeof(u));
+    const unsigned char sep = 0;
+    return fnv1a_update(hash, &sep, 1);
+}
+
+uint64_t index_signature(const core::ConcurrentInvertedIndex& index,
+                         const core::DocumentStore& store) {
+    auto id_to_path = build_id_path_map(store);
+    auto snapshot = index.snapshot();
+
+    std::sort(snapshot.begin(), snapshot.end(),
+              [](const core::TermPostings& a, const core::TermPostings& b) {
+                  return a.term < b.term;
+              });
+
+    uint64_t hash = 1469598103934665603ULL;
+
+    for (const auto& tp : snapshot) {
+        hash = fnv1a_add_string(hash, tp.term);
+
+        std::vector<std::pair<std::string, int>> by_path;
+        by_path.reserve(tp.postings.size());
+        for (const auto& p : tp.postings) {
+            auto it = id_to_path.find(p.doc_id);
+            std::string path = (it != id_to_path.end())
+                ? it->second
+                : (std::string("<missing:") + std::to_string(p.doc_id) + ">");
+            by_path.emplace_back(std::move(path), p.freq);
+        }
+
+        std::sort(by_path.begin(), by_path.end(),
+                  [](const auto& a, const auto& b) {
+                      if (a.first != b.first) return a.first < b.first;
+                      return a.second < b.second;
+                  });
+
+        for (const auto& pf : by_path) {
+            hash = fnv1a_add_string(hash, pf.first);
+            hash = fnv1a_add_int(hash, pf.second);
+        }
+    }
+
+    return hash;
 }
 
 } // namespace
@@ -239,6 +315,42 @@ int main(int argc, char** argv) {
         }
 
         return 0;
+    }
+
+    if (mode == "verify") {
+        if (dataset.empty()) {
+            std::cerr << "Missing --dataset for verify mode\n";
+            return 2;
+        }
+
+        auto ths = parse_list(threads_list);
+
+        core::ConcurrentInvertedIndex ref_index(64);
+        core::DocumentStore ref_store;
+        core::Tokenizer ref_tok(core::TokenizerConfig{true, 2, 64, true});
+        core::IndexBuilder ref_builder(ref_index, ref_store, ref_tok);
+        ref_builder.build_from_directory(dataset, 1);
+
+        uint64_t ref_sig = index_signature(ref_index, ref_store);
+
+        bool all_ok = true;
+        for (int t : ths) {
+            if (t <= 0) t = 1;
+
+            core::ConcurrentInvertedIndex idx(64);
+            core::DocumentStore store;
+            core::Tokenizer tok(core::TokenizerConfig{true, 2, 64, true});
+            core::IndexBuilder builder(idx, store, tok);
+            builder.build_from_directory(dataset, (std::size_t)t);
+
+            uint64_t sig = index_signature(idx, store);
+            bool ok = (sig == ref_sig);
+
+            std::cout << "verify threads=" << t << " " << (ok ? "ok" : "mismatch") << "\n";
+            if (!ok) all_ok = false;
+        }
+
+        return all_ok ? 0 : 3;
     }
 
     // search mode

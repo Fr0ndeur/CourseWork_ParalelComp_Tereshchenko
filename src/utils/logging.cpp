@@ -45,7 +45,6 @@ std::string Logger::level_name_(LogLevel lvl) const {
 }
 
 void Logger::log(LogLevel lvl, const std::string& msg) {
-    // quick check without locking too much
     {
         std::lock_guard<std::mutex> lock(mu_);
         if ((int)lvl < (int)level_) return;

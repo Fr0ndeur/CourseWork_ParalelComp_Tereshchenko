@@ -25,14 +25,10 @@ public:
     void set_level(LogLevel lvl);
     LogLevel level() const;
 
-    // Optional: log to file as well as stdout
-    // If path empty -> disables file output
     bool set_log_file(const std::string& path);
 
-    // Log raw message at level
     void log(LogLevel lvl, const std::string& msg);
 
-    // Convenience wrappers
     void trace(const std::string& msg) { log(LogLevel::Trace, msg); }
     void debug(const std::string& msg) { log(LogLevel::Debug, msg); }
     void info (const std::string& msg) { log(LogLevel::Info,  msg); }
@@ -49,7 +45,6 @@ private:
     std::optional<std::ofstream> file_;
 };
 
-// Helper macros (optional but nice for clean code)
 #define LOG_TRACE(msg) ::utils::Logger::instance().trace(msg)
 #define LOG_DEBUG(msg) ::utils::Logger::instance().debug(msg)
 #define LOG_INFO(msg)  ::utils::Logger::instance().info(msg)

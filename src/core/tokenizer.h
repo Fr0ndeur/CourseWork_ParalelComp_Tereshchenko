@@ -10,14 +10,13 @@ struct TokenizerConfig {
     bool to_lower = true;
     std::size_t min_token_len = 2;
     std::size_t max_token_len = 64;
-    bool keep_digits = true;   // keep 0-9
+    bool keep_digits = true;
 };
 
 class Tokenizer {
 public:
     explicit Tokenizer(TokenizerConfig cfg = {});
 
-    // Tokenize whole text into vector of tokens
     std::vector<std::string> tokenize(std::string_view text) const;
 
 private:

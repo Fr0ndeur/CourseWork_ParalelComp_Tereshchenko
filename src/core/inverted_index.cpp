@@ -136,16 +136,30 @@ std::vector<SearchResult> ConcurrentInvertedIndex::search(const std::vector<std:
     return res;
 }
 
+std::vector<TermPostings> ConcurrentInvertedIndex::snapshot() const {
+    std::vector<TermPostings> out;
+
+    for (std::size_t i = 0; i < shard_count_; ++i) {
+        std::shared_lock<std::shared_mutex> lock(shards_[i].mu);
+        for (const auto& kv : shards_[i].map) {
+            TermPostings tp;
+            tp.term = kv.first;
+            tp.postings = kv.second;
+            out.push_back(std::move(tp));
+        }
+    }
+
+    return out;
+}
+
 IndexStats ConcurrentInvertedIndex::stats() const {
     IndexStats st{};
 
-    // documents = size of forward index
     {
         std::shared_lock<std::shared_mutex> lock(forward_mu_);
         st.documents = forward_.size();
     }
 
-    // terms + postings across shards
     std::size_t terms = 0;
     std::size_t postings = 0;
     for (std::size_t i = 0; i < shard_count_; ++i) {

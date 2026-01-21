@@ -18,17 +18,13 @@ ThreadPool::~ThreadPool() {
 }
 
 void ThreadPool::shutdown() {
-    // Only first caller triggers shutdown
     bool expected = true;
     if (!accepting_.compare_exchange_strong(expected, false, std::memory_order_acq_rel)) {
-        // already shutting down or shut down
         return;
     }
 
-    // Close queue: wake up all workers.
     queue_.close();
 
-    // Join workers
     for (auto& t : workers_) {
         if (t.joinable()) t.join();
     }
@@ -39,15 +35,12 @@ void ThreadPool::worker_loop() {
     while (true) {
         auto job_opt = queue_.pop();
         if (!job_opt.has_value()) {
-            // queue closed and empty
             break;
         }
 
         try {
             (*job_opt)();
         } catch (...) {
-            // Intentionally swallow exceptions to keep worker alive.
-            // Exceptions are propagated via futures in submit() tasks.
         }
     }
 }

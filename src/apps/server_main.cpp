@@ -72,7 +72,6 @@ struct AppState {
 
     std::string web_root = "web";
 
-    // Scheduler
     std::atomic<bool> scheduler_enabled{false};
     std::atomic<bool> stop_scheduler{false};
     std::size_t scheduler_interval_s = 30;
@@ -277,7 +276,6 @@ int main(int argc, char** argv) {
     bool sched_on = cfg.get_bool("SCHED_ENABLED", args.scheduler);
     st.scheduler_enabled.store(sched_on);
 
-    // Scheduler thread: incremental updates periodically
     std::thread sched_thread([&]() {
         while (!st.stop_scheduler.load()) {
             utils::sleep_ms((long long)st.scheduler_interval_s * 1000);
@@ -293,7 +291,6 @@ int main(int argc, char** argv) {
 
     net::RequestRouter router;
 
-    // Static web
     router.add_route("GET", "/", [&](const net::HttpRequest&) {
         return serve_static(st, "index.html");
     });
@@ -304,12 +301,10 @@ int main(int argc, char** argv) {
         return serve_static(st, "styles.css");
     });
 
-    // API: status
     router.add_route("GET", "/status", [&](const net::HttpRequest&) {
         return net::make_json_response(200, stats_json(st));
     });
 
-    // API: search
     router.add_route("GET", "/search", [&](const net::HttpRequest& req) {
         auto it = req.query.find("q");
         std::string q = (it == req.query.end()) ? "" : it->second;
@@ -351,7 +346,6 @@ int main(int argc, char** argv) {
         return net::make_json_response(200, oss.str());
     });
 
-    // API: build/update (async job)
     router.add_route("POST", "/build", [&](const net::HttpRequest& req) {
         json_min::Object obj;
         std::string err;
@@ -390,7 +384,6 @@ int main(int argc, char** argv) {
         );
     });
 
-    // API: scheduler control
     router.add_route("POST", "/scheduler", [&](const net::HttpRequest& req) {
         json_min::Object obj;
         std::string err;
