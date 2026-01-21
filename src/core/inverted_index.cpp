@@ -20,17 +20,13 @@ std::vector<std::pair<std::string, int>> ConcurrentInvertedIndex::get_forward_co
 }
 
 void ConcurrentInvertedIndex::remove_document(int doc_id) {
-    // 1) take a copy of forward terms (avoid holding forward lock while locking shards)
     std::vector<std::pair<std::string, int>> terms = get_forward_copy_(doc_id);
     if (terms.empty()) {
-        // still erase forward_ entry if exists (could be empty)
         std::unique_lock<std::shared_mutex> wlock(forward_mu_);
         forward_.erase(doc_id);
         return;
     }
 
-    // 2) remove postings for each term
-    // group terms by shard to reduce lock churn
     std::unordered_map<std::size_t, std::vector<std::string>> by_shard;
     by_shard.reserve(terms.size());
 
@@ -59,16 +55,13 @@ void ConcurrentInvertedIndex::remove_document(int doc_id) {
         }
     }
 
-    // 3) remove forward entry
     std::unique_lock<std::shared_mutex> wlock(forward_mu_);
     forward_.erase(doc_id);
 }
 
 void ConcurrentInvertedIndex::upsert_document(int doc_id, const std::unordered_map<std::string, int>& term_freq) {
-    // Replace semantics: remove old, then add new.
     remove_document(doc_id);
 
-    // Save forward data
     std::vector<std::pair<std::string, int>> forward_terms;
     forward_terms.reserve(term_freq.size());
     for (const auto& kv : term_freq) {
@@ -81,7 +74,6 @@ void ConcurrentInvertedIndex::upsert_document(int doc_id, const std::unordered_m
         forward_[doc_id] = forward_terms;
     }
 
-    // group updates by shard
     std::unordered_map<std::size_t, std::vector<std::pair<std::string, int>>> by_shard;
     by_shard.reserve(forward_terms.size());
     for (const auto& kv : forward_terms) {
