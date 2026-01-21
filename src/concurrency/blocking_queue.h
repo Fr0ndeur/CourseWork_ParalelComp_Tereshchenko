@@ -7,10 +7,6 @@
 #include <optional>
 #include <utility>
 
-// A simple thread-safe blocking queue with close() semantics.
-// - Multiple producers / multiple consumers.
-// - pop() blocks until item available OR queue is closed and empty.
-// - close() wakes all waiters; after close no pushes are accepted.
 template <typename T>
 class BlockingQueue {
 public:
@@ -18,7 +14,6 @@ public:
     BlockingQueue(const BlockingQueue&) = delete;
     BlockingQueue& operator=(const BlockingQueue&) = delete;
 
-    // Returns false if queue is closed (item is not pushed).
     bool push(T item) {
         std::unique_lock<std::mutex> lock(mu_);
         if (closed_) return false;
@@ -28,7 +23,6 @@ public:
         return true;
     }
 
-    // Emplace-style push. Returns false if closed.
     template <class... Args>
     bool emplace(Args&&... args) {
         std::unique_lock<std::mutex> lock(mu_);
@@ -39,7 +33,6 @@ public:
         return true;
     }
 
-    // Non-blocking pop. Returns empty optional if queue empty.
     std::optional<T> try_pop() {
         std::lock_guard<std::mutex> lock(mu_);
         if (q_.empty()) return std::nullopt;
@@ -48,14 +41,11 @@ public:
         return item;
     }
 
-    // Blocking pop.
-    // Returns std::nullopt if queue is closed AND empty.
     std::optional<T> pop() {
         std::unique_lock<std::mutex> lock(mu_);
         cv_.wait(lock, [&] { return closed_ || !q_.empty(); });
 
         if (q_.empty()) {
-            // closed_ must be true here
             return std::nullopt;
         }
 
@@ -64,8 +54,6 @@ public:
         return item;
     }
 
-    // Close the queue: no further pushes are accepted.
-    // Wakes all waiting consumers.
     void close() {
         std::lock_guard<std::mutex> lock(mu_);
         closed_ = true;
