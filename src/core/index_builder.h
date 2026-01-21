@@ -25,15 +25,12 @@ public:
                  DocumentStore& store,
                  Tokenizer tokenizer);
 
-    // Full rebuild (indexes everything found).
     BuildResult build_from_directory(const std::string& root_dir,
                                     std::size_t threads);
 
-    // Incremental update: indexes only new/modified files.
     BuildResult update_from_directory(const std::string& root_dir,
                                      std::size_t threads);
 
-    // Index an explicit list of files.
     BuildResult index_files(const std::vector<FileInfo>& files,
                             std::size_t threads,
                             bool incremental);

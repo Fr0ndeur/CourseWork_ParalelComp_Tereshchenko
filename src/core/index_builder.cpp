@@ -73,7 +73,6 @@ BuildResult IndexBuilder::index_files(const std::vector<FileInfo>& files,
     std::size_t skipped = 0;
     std::size_t errors = 0;
 
-    // futures to wait completion
     std::vector<std::future<void>> futs;
     futs.reserve(files.size());
 
@@ -98,13 +97,10 @@ BuildResult IndexBuilder::index_files(const std::vector<FileInfo>& files,
                 auto tokens = tokenizer_.tokenize(text);
                 auto tf = make_term_freq_(tokens);
 
-                // doc_id
                 auto [doc_id, created] = store_.get_or_create(fi.path, fi.mtime);
 
-                // Update index (replace semantics already inside)
                 index_.upsert_document(doc_id, tf);
 
-                // Update mtime (even if created, safe)
                 store_.update_mtime(fi.path, fi.mtime);
 
                 std::lock_guard<std::mutex> lk(agg_mu);
